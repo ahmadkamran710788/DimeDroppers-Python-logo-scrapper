@@ -69,6 +69,13 @@ https://cmsv2-assets.apptegy.net/uploads/24463/logo/27276/Mandarin_Middle_School
 
 The Apptegy CDN itself is not challenged — only the HTML pages are.
 
+Two settings in `playwright_settings()` are load-bearing, and the stage is unusable without them:
+
+- **`PLAYWRIGHT_ABORT_REQUEST` blocks images/media/fonts/analytics.** We need the DOM to read the logo's *URL*, never its bytes; a school homepage otherwise pulls ~800 requests of ads and tracking per row and blows the navigation timeout. This alone took the full sheet from 3/26 logos in 7 min to 26/26 in 80 s.
+- **AutoThrottle is disabled here.** It derives delay from response latency, and a rendered page legitimately takes ~5 s — which it reads as a struggling server and backs off from, compounding to ~55 s/row. The open page count is already the rate limit.
+
+Navigation waits on `domcontentloaded` + an `<img>`, never `networkidle` — these pages carry beacons that never settle.
+
 ---
 
 ## Input format
@@ -135,9 +142,19 @@ Set `FRONTEND_ORIGIN` to the Vercel domain.
 
 ---
 
+## Measured results
+
+On `Duval_County_Middle_Schools_Directory.xlsx` (26 rows), end-to-end in ~80 s:
+
+| | |
+|---|---|
+| GoFan matched | **24/26** |
+| GoFan logo URLs | 24 (6 are placeholders — see below) |
+| Official website logos | **26/26**, all distinct, all `200 image/*` |
+
 ## Known limits
 
-- **24/26 on the Duval sheet.** GRASP Academy and Jacksonville STEM Academy aren't on GoFan; they're left blank rather than mismatched.
-- **~6 of 24 GoFan logos are placeholders** — GoFan returns a generic grey `gofan-logo-black.png` for schools that never uploaded one. Written as-is (`is_placeholder_logo()` can detect them: real logos are namespaced `/logo/{huddleId}/...`).
+- **24/26 on the Duval sheet.** GRASP Academy and Jacksonville STEM Academy aren't on GoFan; they're left blank rather than mismatched. (GRASP still gets a website logo — the two stages are independent.)
+- **6 of 24 GoFan logos are placeholders** — GoFan returns a generic grey `gofan-logo-black.png` for schools that never uploaded one. Written as-is per the 3-column output spec, so expect a few identical grey images. `is_placeholder_logo()` detects them if you ever want to blank or flag them: real logos are namespaced `/logo/{huddleId}/...`.
 - **`/v2/schools/search` is undocumented** and could change. A shape change logs a warning rather than silently writing blanks.
 - Logo URLs frequently contain spaces (12 of 24 on this sheet) and are percent-encoded on write. Raw, they 404.
