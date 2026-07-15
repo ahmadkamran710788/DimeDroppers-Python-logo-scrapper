@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: dd-logo-scraper
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # standard = 2 GB / 1 CPU. Chromium alone is ~400 MB resident; starter (512 MB)
+    # will OOM-kill the browser mid-job.
+    plan: standard
+    healthCheckPath: /health
+    envVars:
+      # Set to the Vercel domain once the frontend is deployed. "*" is fine while
+      # there is no auth, but tighten it.
+      - key: FRONTEND_ORIGIN
+        value: "*"
+
+      # MUST stay 1. JOBS lives in the uvicorn process's memory, so a second
+      # worker would not see jobs created by the first; and two concurrent
+      # Chromium jobs would exceed 2 GB.
+      - key: MAX_CONCURRENT_JOBS
+        value: "1"
+
+      # Timeout budget, layered so a real job self-closes gracefully and still
+      # flushes partial output before the hard watchdog fires:
+      #   CLOSESPIDER_TIMEOUT (1800) x2 spiders = 3600 < JOB_MAX_RUNTIME (4200)
+      - key: CLOSESPIDER_TIMEOUT
+        value: "1800"
+      - key: JOB_MAX_RUNTIME_SECONDS
+        value: "4200"
+
+      - key: MEMUSAGE_LIMIT_MB
+        value: "1400"
+      - key: MEMUSAGE_WARNING_MB
+        value: "1100"
+
+      # Chromium is the memory ceiling here; more pages at once is what OOMs.
+      - key: PLAYWRIGHT_MAX_PAGES
+        value: "2"
+      - key: PLAYWRIGHT_NAV_TIMEOUT_MS
+        value: "45000"
+
+      - key: MAX_UPLOAD_BYTES
+        value: "10485760"
+      - key: SCRAPY_LOG_LEVEL
+        value: "INFO"

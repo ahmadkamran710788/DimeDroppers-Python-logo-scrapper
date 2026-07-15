@@ -1,0 +1,12 @@
+# Scrapy 2.13 deprecated Spider.start_requests() and 2.16 removed it; on a newer
+# Scrapy these spiders would silently yield ZERO requests.
+Scrapy>=2.11,<2.13
+# Twisted 25 removed _setAcceptableProtocols, which Scrapy imports.
+Twisted>=24.7,<25
+scrapy-playwright>=0.0.41
+itemadapter>=0.8
+fastapi>=0.110
+uvicorn[standard]>=0.29
+# Required by FastAPI for multipart uploads; without it POST /jobs 500s.
+python-multipart>=0.0.9
+openpyxl>=3.1
