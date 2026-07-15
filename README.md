@@ -93,8 +93,13 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m playwright install chromium
 
-.venv/bin/uvicorn api:app --reload --port 8000
+.venv/bin/uvicorn api:app --port 8000
 ```
+
+> **Don't add `--reload`.** It watches every `*.py` in this directory, so editing
+> any file mid-job restarts the app. Jobs now survive that (state is rebuilt from
+> disk on startup), but the restart still drops a few seconds of polling and the
+> API briefly stops answering. If you want it anyway, expect that.
 
 Run one job without the API:
 
@@ -136,7 +141,20 @@ The wildcard matters — Chromium ignores a bare-host `MAP` rule here. This is a
 `render.yaml` is a Docker blueprint. Two constraints are load-bearing:
 
 - **`plan: standard`** — Chromium is ~400 MB resident; starter (512 MB) OOM-kills it.
-- **`MAX_CONCURRENT_JOBS=1` and one uvicorn worker** — `JOBS` is an in-memory dict holding live `Popen` handles, so a second worker wouldn't see the first's jobs. Jobs also don't survive a restart.
+- **`MAX_CONCURRENT_JOBS=1` and one uvicorn worker** — `JOBS` is process-local, so a second uvicorn worker wouldn't see the first's jobs.
+
+### Job durability
+
+Jobs **do** survive a restart of the API process. Startup rebuilds `JOBS` by scanning `jobs/*/job.json` rather than wiping the directory, and `_refresh()` resolves status from disk (`result.json` / `error.txt` / worker PID liveness) instead of relying on a `Popen` handle it no longer has.
+
+That matters because a Render redeploy, a free-tier spin-down, or a `--reload` triggered by a `.py` edit all restart the process mid-job. The original design lost the job silently (`unknown job`) *and* `rmtree`'d the running worker's output directory out from under it.
+
+- If the worker outlives the restart, the job simply finishes and results are served normally.
+- If the worker died too, the job reports `error: "the server restarted while this job was running; please run it again"` — never a silent 404.
+- Stale job dirs are swept by age (`JOB_RETENTION_HOURS`, default 24) instead of wholesale on boot.
+- **Never reintroduce `rmtree(JOBS_DIR)` in `lifespan`.** That is the bug.
+
+`JOBS_DIR` can be pointed elsewhere via env (defaults to `./jobs`).
 
 Set `FRONTEND_ORIGIN` to the Vercel domain.
 
