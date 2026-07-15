@@ -203,7 +203,9 @@ def job_download(job_id: str, format: str = Query("xlsx", pattern="^(xlsx|csv)$"
     if not os.path.exists(path):
         raise HTTPException(404, "output file missing")
 
-    stem = result.get("source_name") or "directory"
+    # Name the download after what the user uploaded. The worker only ever sees
+    # the normalised "input.xlsx", so its own stem would read "input_enriched".
+    stem = os.path.splitext(os.path.basename(job.get("filename") or ""))[0] or "directory"
     media = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         if format == "xlsx"
