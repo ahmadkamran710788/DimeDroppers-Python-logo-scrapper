@@ -32,11 +32,12 @@ services:
       - key: MEMUSAGE_WARNING_MB
         value: "1100"
 
-      # Chromium is the memory ceiling here; more pages at once is what OOMs.
+      # Chromium is the memory ceiling here (~150-250 MB per open page); this is
+      # the first thing to turn down if jobs get OOM-killed.
       - key: PLAYWRIGHT_MAX_PAGES
-        value: "2"
+        value: "4"
       - key: PLAYWRIGHT_NAV_TIMEOUT_MS
-        value: "45000"
+        value: "60000"
 
       - key: MAX_UPLOAD_BYTES
         value: "10485760"

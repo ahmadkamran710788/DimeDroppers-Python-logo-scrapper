@@ -52,6 +52,40 @@ MEMUSAGE_LIMIT_MB = int(os.environ.get("MEMUSAGE_LIMIT_MB", "1400"))
 MEMUSAGE_WARNING_MB = int(os.environ.get("MEMUSAGE_WARNING_MB", "1100"))
 
 
+# We need the DOM to read the logo's URL -- never the bytes it points at. A school
+# homepage otherwise pulls ~800 requests of images, ads and analytics per row,
+# which is what pushes navigation past its timeout.
+_BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
+_BLOCKED_HOST_MARKERS = (
+    "doubleclick",
+    "googlesyndication",
+    "googletagmanager",
+    "google-analytics",
+    "googleadservices",
+    "adtrafficquality",
+    "segment.io",
+    "segment.com",
+    "nr-data.net",
+    "newrelic",
+    "hotjar",
+    "facebook.net",
+    "facebook.com/tr",
+    "launchdarkly",
+    "onetrust",
+    "cookielaw",
+    "hightouch-events",
+    "stripe.com",
+    "recaptcha",
+)
+
+
+def _should_abort(request):
+    if request.resource_type in _BLOCKED_RESOURCE_TYPES:
+        return True
+    url = request.url.lower()
+    return any(m in url for m in _BLOCKED_HOST_MARKERS)
+
+
 def playwright_settings():
     """Overrides for the website-logo spider only.
 
@@ -83,8 +117,9 @@ def playwright_settings():
         },
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
         "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True, "args": args},
+        "PLAYWRIGHT_ABORT_REQUEST": _should_abort,
         "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": int(
-            os.environ.get("PLAYWRIGHT_NAV_TIMEOUT_MS", "45000")
+            os.environ.get("PLAYWRIGHT_NAV_TIMEOUT_MS", "60000")
         ),
         # Chromium is memory-hungry; more than a couple of pages at once will OOM
         # a 2 GB Render box.
