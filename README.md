@@ -140,7 +140,25 @@ The wildcard matters — Chromium ignores a bare-host `MAP` rule here. This is a
 
 `render.yaml` is a Docker blueprint. Two constraints are load-bearing:
 
-- **`plan: standard`** — Chromium is ~400 MB resident; starter (512 MB) OOM-kills it.
+### Memory: the browser stage does not fit 512 MB
+
+Measured with `tests/measure_memory.py` (peak RSS, worker + all Chromium children):
+
+| Mode | Peak RSS | 26-row time | Fits 512 MB? |
+|---|---|---|---|
+| default (4 pages) | **1530 MB** | ~80 s | no — 3× over |
+| `LOW_MEMORY=1` (1 page, headless-shell, `--single-process`) | **~900 MB** | ~130 s | no — ~2× over |
+| GoFan stage only (`SKIP_WEBSITE_LOGO=1`, no browser) | **78 MB** | ~25 s | yes, easily |
+
+Where it goes, in `LOW_MEMORY` (which is already the floor): Chromium 393 MB, Playwright's Node driver ~296 MB across two processes, Python/Scrapy 159 MB. The Node driver is unavoidable overhead of `playwright-python`.
+
+This was reproduced live on a free-tier deploy: `gofan 21/26` → `website 0/26` → **404**, container restarts healthy. Chromium launches, the cgroup limit is blown, Render kills the container, and the in-memory job dies with it. A 45 s cold start on first request is the tell-tale of free tier.
+
+So: **`plan: standard` (2 GB) is required for website logos.** On 512 MB, set `SKIP_WEBSITE_LOGO=1` and take GoFan columns only — that path is genuinely solid at 78 MB.
+
+`LOW_MEMORY=1` halves peak RSS and, counter-intuitively, is *faster* on small sheets (one page with images blocked beats four contending ones). It's off by default because `--single-process` is unsupported by Playwright and can destabilise Chromium — only pay that risk when the RAM isn't there. Results are identical either way (24/26 + 26/26 verified).
+
+- **`plan: standard`** — see the table above; starter/free (512 MB) OOM-kills the browser.
 - **`MAX_CONCURRENT_JOBS=1` and one uvicorn worker** — `JOBS` is process-local, so a second uvicorn worker wouldn't see the first's jobs.
 
 ### Job durability
