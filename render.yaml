@@ -3,8 +3,18 @@ services:
     name: dd-logo-scraper
     runtime: docker
     dockerfilePath: ./Dockerfile
-    # standard = 2 GB / 1 CPU. Chromium alone is ~400 MB resident; starter (512 MB)
-    # will OOM-kill the browser mid-job.
+    # MEASURED, not guessed (tests/measure_memory.py, peak RSS of worker+browser):
+    #
+    #   default (4 pages)                       1530 MB
+    #   LOW_MEMORY=1 (1 page, headless-shell)    850-915 MB
+    #   GoFan stage only (no browser)              78 MB
+    #
+    # So the browser stage does NOT fit a 512 MB instance -- not even at its
+    # absolute minimum. On free/starter it gets OOM-killed the moment Chromium
+    # launches: the container restarts, in-flight jobs die, and the client sees the
+    # job vanish (reproduced live on a free-tier deploy: gofan 21/26 -> website 0/26
+    # -> 404). If you must stay on 512 MB, set SKIP_WEBSITE_LOGO=1 below and accept
+    # GoFan columns only.
     plan: standard
     healthCheckPath: /health
     envVars:
@@ -38,6 +48,21 @@ services:
         value: "4"
       - key: PLAYWRIGHT_NAV_TIMEOUT_MS
         value: "60000"
+
+      # LOW_MEMORY=1 -> 1 page, chromium-headless-shell, --single-process.
+      # Halves peak RSS (1530 -> ~900 MB) and is actually FASTER (21s vs 31s for
+      # 6 rows), because a single page with images blocked beats four contending
+      # ones. Still not enough for 512 MB. Off by default: --single-process is
+      # unsupported by Playwright and can destabilise Chromium, so only pay that
+      # risk when the RAM genuinely isn't there.
+      # - key: LOW_MEMORY
+      #   value: "1"
+
+      # Escape hatch for a 512 MB instance: skip the browser stage entirely.
+      # The GoFan stage peaks at 78 MB and still fills `gofan logo url` +
+      # `gofan url` for 24/26 rows; only `official website logo` is left blank.
+      # - key: SKIP_WEBSITE_LOGO
+      #   value: "1"
 
       - key: MAX_UPLOAD_BYTES
         value: "10485760"

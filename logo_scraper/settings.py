@@ -92,11 +92,38 @@ def playwright_settings():
     Kept off the module defaults so the GoFan spider -- which hits a plain JSON
     API and needs no browser -- never pays Chromium's startup cost.
     """
-    # Chromium is the memory ceiling: each open page costs ~150-250 MB, so this
-    # is what to turn down first if Render starts OOM-killing jobs.
-    _pages = int(os.environ.get("PLAYWRIGHT_MAX_PAGES", "4"))
+    # LOW_MEMORY targets a 512 MB box (Render free/starter). Chromium is the whole
+    # memory story here: on a 512 MB instance the default 4 pages gets the CONTAINER
+    # OOM-killed the moment the browser launches -- the API restarts, in-flight jobs
+    # die, and the client sees the job vanish.
+    low_memory = os.environ.get("LOW_MEMORY") == "1"
+
+    # The first lever to pull. Each open page is ~150-250 MB.
+    _pages = int(os.environ.get("PLAYWRIGHT_MAX_PAGES", "1" if low_memory else "4"))
 
     args = ["--no-sandbox", "--disable-dev-shm-usage"]
+
+    if low_memory:
+        args += [
+            # One process for browser+renderer instead of a process per tab. This is
+            # the single biggest saving, and it is why LOW_MEMORY is opt-in:
+            # --single-process is explicitly unsupported by Playwright and can make
+            # Chromium unstable. Acceptable trade on a box that otherwise cannot run
+            # a browser at all; never enable it where you have the RAM.
+            "--single-process",
+            "--no-zygote",
+            "--renderer-process-limit=1",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-sync",
+            "--disable-translate",
+            "--mute-audio",
+            # Cap V8's heap. We only read the DOM; nothing here needs a big heap.
+            "--js-flags=--max-old-space-size=128",
+            # Belt and braces with PLAYWRIGHT_ABORT_REQUEST: never decode an image.
+            "--blink-settings=imagesEnabled=false",
+        ]
 
     # Local-dev escape hatch, unset in production. Some ISP/router resolvers
     # SERVFAIL on school domains (duvalschools.org does on the dev machine here),
@@ -110,13 +137,20 @@ def playwright_settings():
             "--disable-features=AsyncDNS,DnsOverHttps",
         ]
 
+    launch = {"headless": True, "args": args}
+    if low_memory:
+        # The headless-shell binary is ~197 MB on disk vs ~356 MB for full headless
+        # Chrome, and correspondingly lighter at runtime. It has no UI surface we
+        # use -- we only need the DOM.
+        launch["channel"] = "chromium-headless-shell"
+
     return {
         "DOWNLOAD_HANDLERS": {
             "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
             "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
         },
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
-        "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True, "args": args},
+        "PLAYWRIGHT_LAUNCH_OPTIONS": launch,
         "PLAYWRIGHT_ABORT_REQUEST": _should_abort,
         "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": int(
             os.environ.get("PLAYWRIGHT_NAV_TIMEOUT_MS", "60000")
